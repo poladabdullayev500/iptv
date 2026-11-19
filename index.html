@@ -3,117 +3,119 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ölkələrə Görə IPTV</title>
-    <link href="https://vjs.zencdn.net/7.20.3/video-js.css" rel="stylesheet" />
+    <title>IPTV Kanallar</title>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
-        * { box-sizing: border-box; }
-        body { margin: 0; font-family: Arial, sans-serif; background: #121212; color: #fff; display: flex; height: 100vh; overflow: hidden; }
+        body { font-family: Arial, sans-serif; margin: 0; background: #121212; color: #fff; display: flex; height: 100vh; }
         #sidebar { width: 320px; background: #1e1e1e; display: flex; flex-direction: column; border-right: 1px solid #333; }
-        .controls { padding: 10px; background: #252525; border-bottom: 1px solid #333; }
-        select, input { width: 100%; padding: 8px; margin-bottom: 8px; background: #333; color: #fff; border: 1px solid #444; border-radius: 4px; font-size: 14px; }
-        #channel-list { list-style: none; padding: 0; margin: 0; overflow-y: auto; flex: 1; }
-        #channel-list li { padding: 10px 12px; cursor: pointer; border-bottom: 1px solid #2a2a2a; font-size: 14px; }
-        #channel-list li:hover { background: #333; color: #00fff0; }
-        #player-container { flex: 1; display: flex; justify-content: center; align-items: center; background: #000; }
-        video { width: 100%; height: 100%; }
+        .controls { padding: 10px; background: #252525; }
+        select, input { width: 100%; padding: 8px; margin-bottom: 8px; background: #333; color: #fff; border: 1px solid #444; border-radius: 4px; box-sizing: border-box; }
+        #channel-list { flex: 1; overflow-y: auto; }
+        .channel { padding: 10px; border-bottom: 1px solid #2a2a2a; cursor: pointer; display: flex; align-items: center; gap: 10px; font-size: 14px; }
+        .channel:hover { background: #333; }
+        .channel img { width: 32px; height: 24px; object-fit: contain; background: #000; border-radius: 3px; }
+        #player-container { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #000; padding: 15px; }
+        video { width: 100%; max-width: 960px; max-height: 75vh; background: #000; }
+        #now-playing { margin-top: 12px; font-size: 16px; color: #00e676; }
+        @media (max-width: 768px) { body { flex-direction: column; } #sidebar { width: 100%; height: 55vh; } }
     </style>
 </head>
 <body>
 
-    <div id="sidebar">
-        <div class="controls">
-            <label style="font-size: 12px; color: #aaa;">Ölkəni seçin:</label>
-            <select id="country-select" onchange="loadCountryPlaylist()">
-                <option value="az">Azərbaycan (AZ)</option>
-                <option value="tr">Türkiyə (TR)</option>
-                <option value="us">ABŞ (US)</option>
-                <option value="ru">Rusiya (RU)</option>
-                <option value="de">Almaniya (DE)</option>
-                <option value="gb">Böyük Britaniya (UK)</option>
-                <option value="it">İtaliya (IT)</option>
-                <option value="fr">Fransa (FR)</option>
-                <option value="es">İspaniya (ES)</option>
-            </select>
-            <input type="text" id="search" placeholder="Kanal axtar..." onkeyup="filterChannels()">
-        </div>
-        <ul id="channel-list">Yüklənir...</ul>
+<div id="sidebar">
+    <div class="controls">
+        <select id="country-select"><option value="">�lk?l?r y�kl?nir...</option></select>
+        <input type="text" id="search" placeholder="Kanal axtar...">
     </div>
+    <div id="channel-list"></div>
+</div>
 
-    <div id="player-container" style="position: relative;">
-    <img src="https://i.ibb.co/ccPFsQ29/image.png" style="position: absolute; top: 15px; right: 15px; z-index: 10; width: 70px; opacity: 0.85; pointer-events: none;">
-    <video id="iptv-player" class="video-js vjs-default-skin" controls autoplay preload="auto"></video>
+<div id="player-container">
+    <video id="video" controls autoplay></video>
+    <div id="now-playing">Kanal se�in</div>
+</div>
 
-    <script src="https://vjs.zencdn.net/7.20.3/video.js"></script>
-    <script>
-        let currentChannels = [];
-        const player = videojs('iptv-player');
+<script>
+    const M3U_URL = 'https://iptv-org.github.io/iptv/index.country.m3u';
+    let allChannels = [];
+    const hls = new Hls();
+    const video = document.getElementById('video');
 
-        async function loadCountryPlaylist() {
-            const countryCode = document.getElementById('country-select').value;
-            const listElement = document.getElementById('channel-list');
-            listElement.innerHTML = '<li style="padding:10px;">Kanallar yüklənir...</li>';
-            
-            const url = `https://iptv-org.github.io/iptv/countries/${countryCode}.m3u`;
+    async function loadM3U() {
+        const res = await fetch(M3U_URL);
+        const text = await res.text();
+        const lines = text.split('\n');
+        let current = null;
 
-            try {
-                const response = await fetch(url);
-                if (!response.ok) throw new Error();
-                const data = await response.text();
-                parseM3U(data);
-            } catch (error) {
-                listElement.innerHTML = '<li style="padding:10px; color:red;">Bu ölkə üçün kanal tapılmadı.</li>';
+        for (let line of lines) {
+            line = line.trim();
+            if (line.startsWith('#EXTINF:')) {
+                const name = line.split(',').pop().trim();
+                const groupMatch = line.match(/group-title="([^"]*)"/);
+                const logoMatch = line.match(/tvg-logo="([^"]*)"/);
+                current = {
+                    name: name,
+                    country: groupMatch ? groupMatch[1] : 'Dig?r',
+                    logo: logoMatch ? logoMatch[1] : ''
+                };
+            } else if (line.startsWith('http') && current) {
+                current.url = line;
+                allChannels.push(current);
+                current = null;
             }
         }
+        populateCountries();
+    }
 
-        function parseM3U(m3uText) {
-            const lines = m3uText.split('\n');
-            currentChannels = [];
-            let currentName = '';
-            
-            lines.forEach(line => {
-                line = line.trim();
-                if (line.startsWith('#EXTINF:')) {
-                    const parts = line.split(',');
-                    currentName = parts[parts.length - 1];
-                } else if (line.startsWith('http')) {
-                    if (currentName) {
-                        currentChannels.push({ name: currentName, url: line });
-                        currentName = '';
-                    }
-                }
-            });
+    function populateCountries() {
+        const countries = [...new Set(allChannels.map(c => c.country))].sort();
+        const select = document.getElementById('country-select');
+        select.innerHTML = '<option value="ALL">B�t�n �lk?l?r (' + allChannels.length + ')</option>';
+        countries.forEach(c => {
+            if (!c) return;
+            const opt = document.createElement('option');
+            opt.value = c;
+            opt.textContent = c;
+            if (c === 'Azerbaijan') opt.selected = true;
+            select.appendChild(opt);
+        });
+        renderChannels();
+    }
 
-            renderChannels(currentChannels);
+    function renderChannels() {
+        const country = document.getElementById('country-select').value;
+        const query = document.getElementById('search').value.toLowerCase();
+        const list = document.getElementById('channel-list');
+        list.innerHTML = '';
+
+        const filtered = allChannels.filter(c => {
+            const matchCountry = country === 'ALL' || c.country === country;
+            const matchSearch = c.name.toLowerCase().includes(query);
+            return matchCountry && matchSearch;
+        }).slice(0, 300);
+
+        filtered.forEach(ch => {
+            const div = document.createElement('div');
+            div.className = 'channel';
+            div.innerHTML = `<img src="${ch.logo}" onerror="this.style.display='none'"><span>${ch.name}</span>`;
+            div.onclick = () => playChannel(ch);
+            list.appendChild(div);
+        });
+    }
+
+    function playChannel(ch) {
+        document.getElementById('now-playing').textContent = `${ch.name} (${ch.country})`;
+        if (Hls.isSupported()) {
+            hls.loadSource(ch.url);
+            hls.attachMedia(video);
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            video.src = ch.url;
         }
+    }
 
-        function renderChannels(list) {
-            const listElement = document.getElementById('channel-list');
-            listElement.innerHTML = '';
-            if (list.length === 0) {
-                listElement.innerHTML = '<li style="padding:10px;">Kanal tapılmadı.</li>';
-                return;
-            }
-            list.forEach(channel => {
-                const li = document.createElement('li');
-                li.textContent = channel.name;
-                li.onclick = () => playChannel(channel.url);
-                listElement.appendChild(li);
-            });
-        }
-
-        function playChannel(url) {
-            player.src({ src: url, type: 'application/x-mpegURL' });
-            player.play();
-        }
-
-        function filterChannels() {
-            const query = document.getElementById('search').value.toLowerCase();
-            const filtered = currentChannels.filter(c => c.name.toLowerCase().includes(query));
-            renderChannels(filtered);
-        }
-
-        // İlkin olaraq Azərbaycan kanallarını yüklə
-        loadCountryPlaylist();
-    </script>
+    document.getElementById('country-select').onchange = renderChannels;
+    document.getElementById('search').oninput = renderChannels;
+    loadM3U();
+</script>
 </body>
 </html>
